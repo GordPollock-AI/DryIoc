@@ -125,6 +125,37 @@ namespace DryIoc
 
             internal override bool ValidateAndNormalizeRegistration(Type serviceType, object serviceKey,
                 bool isStaticallyChecked, Rules rules) => true;
+
+            /// <summary>
+            /// 
+            /// </summary>
+            public static readonly Expression<Func<FactoryDelegate>> GetFactoryDelegateTemplateExpression =
+                () => FactoryDelegateTemplate;
+            internal static object FactoryDelegateTemplate(IResolverContext _) => throw new NotImplementedException();
+
+            /// <summary>
+            /// 
+            /// </summary>
+            /// <param name="factoryMethod"></param>
+            /// <returns></returns>
+            public static Expression<Func<FactoryDelegate>> GetFactoryDelegateExpression(MethodInfo factoryMethod)
+            {
+                var visitor = new FactoryDelegateExpressionBuilder(factoryMethod);
+                return (Expression<Func<FactoryDelegate>>) visitor.Visit(GetFactoryDelegateTemplateExpression);
+            }
+
+            private class FactoryDelegateExpressionBuilder : ExpressionVisitor
+            {
+                private readonly MethodInfo _factoryMethod;
+
+                public FactoryDelegateExpressionBuilder(MethodInfo factoryMethod)
+                {
+                    _factoryMethod = factoryMethod;
+                }
+
+                protected override Expression VisitConstant(ConstantExpression node) =>
+                    node.Type == typeof(MethodInfo) ? Expression.Constant(_factoryMethod) : node;
+            }
         }
 
         /// <summary>

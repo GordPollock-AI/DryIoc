@@ -9,37 +9,26 @@ namespace DryIoc.UnitTests
     [TestFixture]
     public class AssemblyGeneratorTests
     {
-        [Test]
-        public void InspectMethodGroupExpression()
+        private class TestFactory
         {
-            var expected = RE(() => FactoryDelegateMethod);
-
-            var factoryDelegateMethodInfo = typeof(AssemblyGeneratorTests).GetMethod(nameof(FactoryDelegateMethod),
-                BindingFlags.Static | BindingFlags.NonPublic);
-            var specificExpected = RE(() =>
-                (FactoryDelegate) Delegate.CreateDelegate(typeof(AssemblyGeneratorTests), factoryDelegateMethodInfo));
-
-            Console.WriteLine(expected);
-            Console.WriteLine(specificExpected);
-            
-            Assert.That(specificExpected, Is.EqualTo(expected));
-            
-            var createDelegateMethod = typeof(Delegate).GetMethod(nameof(Delegate.CreateDelegate), new[]{typeof(Type), typeof(MethodInfo)});
-            var manualExpression =
-                Expression.Lambda<Func<FactoryDelegate>>(
-                    Expression.Convert(
-                        Expression.Constant(
-                        Expression.Call(createDelegateMethod, Expression.Constant(typeof(AssemblyGeneratorTests)),
-                            Expression.Constant(factoryDelegateMethodInfo))),
-                    typeof(FactoryDelegate)));
-
-            Console.WriteLine(manualExpression);
-            
-            Assert.That(manualExpression, Is.EqualTo(expected));
+            public static object FactoryDelegate(IResolverContext _) => nameof(TestFactory);
         }
-        
-        private static Container FactoryDelegateMethod(IResolverContext _) => throw new NotImplementedException();
 
-        private Expression RE(Expression<Func<FactoryDelegate>> e) => e;
+        [Test]
+        public void GetFactoryDelegateExpression_GetsCorrectDelegateExpression()
+        {
+            var testFactoryMethod = typeof(TestFactory).GetMethod(nameof(FactoryDelegate), BindingFlags.Static | BindingFlags.Public);
+
+            Console.WriteLine(ContainerAssemblyGenerator.GeneratedFactoryBase.GetFactoryDelegateTemplateExpression);
+            Expression<Func<FactoryDelegate>> expected = () => TestFactory.FactoryDelegate;
+            Console.WriteLine(expected);
+            
+            var factoryDelegateExpression =
+                ContainerAssemblyGenerator.GeneratedFactoryBase.GetFactoryDelegateExpression(testFactoryMethod);
+
+            Console.WriteLine(factoryDelegateExpression);
+            
+            Assert.That(factoryDelegateExpression.ToString(), Is.EqualTo(expected.ToString()));
+        }
     }
 }
