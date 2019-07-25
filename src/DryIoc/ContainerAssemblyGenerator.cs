@@ -74,9 +74,19 @@ namespace DryIoc
                 factoryDelegateMethodInfo.GetParameters().Select(p => p.ParameterType).ToArray());
             simpleFactory.Value.CompileToMethod(factoryDelegateMethod);
             
-            var getDelegate = factoryType.DefineMethod(nameof(GeneratedFactoryBase.GetDelegateOrDefault), MethodAttributes.Public,
-                CallingConventions.Standard, typeof(FactoryDelegate), new[] {typeof(Request)});
-            //Expression.MakeMemberAccess(Expression)
+            var getDelegate = factoryType.DefineMethod(nameof(GeneratedFactoryBase.GetDelegateOrDefault), MethodAttributes.Public | MethodAttributes.Virtual,
+                CallingConventions.Any, typeof(FactoryDelegate), new[] {typeof(Request)});
+            var getDelegateExpression = GeneratedFactoryBase.GetFactoryDelegateExpression(factoryDelegateMethod);
+            getDelegateExpression.CompileToMethod(getDelegate);
+
+            var addRegistrationMethod = typeof(IRegistrator).GetMethod(nameof(IRegistrator.Register));
+            addRegistrationMethod.ThrowIfNull();
+            var newFactoryExpression = Expression.New(factoryType);
+            var registrationLine = Expression.Call(generatedContainerVariable, addRegistrationMethod,
+                newFactoryExpression, Expression.Constant(simpleFactory.Key.ServiceType),
+                Expression.Constant(simpleFactory.Key.ServiceKey),
+                Expression.Constant(default(IfAlreadyRegistered?)), Expression.Constant(false));
+            registrationLines.Add(registrationLine);
         }
 
         private static string GetTypeName(ServiceInfo serviceInfo, ModuleBuilder module)
@@ -140,7 +150,7 @@ namespace DryIoc
             /// <returns></returns>
             public static Expression<Func<FactoryDelegate>> GetFactoryDelegateExpression(MethodInfo factoryMethod)
             {
-                var visitor = new FactoryDelegateExpressionBuilder(factoryMethod);
+                var visitor = new FactoryDelegateExpressionBuilder(factoryMethod.ThrowIfNull());
                 return (Expression<Func<FactoryDelegate>>) visitor.Visit(GetFactoryDelegateTemplateExpression);
             }
 
