@@ -81,11 +81,17 @@ namespace DryIoc
                 CallingConventions.Standard, factoryDelegateMethodInfo.ReturnType,
                 factoryDelegateMethodInfo.GetParameters().Select(p => p.ParameterType).ToArray());
             simpleFactory.Value.CompileToMethod(factoryDelegateMethod);
-            
+
+            var factoryDelegateConstructorInfo =
+                typeof(FactoryDelegate).GetConstructor(new[] {typeof(object), typeof(IntPtr)});
+            factoryDelegateConstructorInfo.ThrowIfNull();
             var getDelegate = factoryType.DefineMethod(nameof(GeneratedFactoryBase.GetDelegateOrDefault), MethodAttributes.Public | MethodAttributes.Virtual,
-                CallingConventions.Any, typeof(FactoryDelegate), new[] {typeof(Request)});
-            var getDelegateExpression = GeneratedFactoryBase.GetFactoryDelegateExpression(factoryDelegateMethod);
-            getDelegateExpression.CompileToMethod(getDelegate);
+                CallingConventions.Standard, typeof(FactoryDelegate), new[] {typeof(Request)});
+            var getDelegateIL = getDelegate.GetILGenerator();
+            getDelegateIL.Emit(OpCodes.Ldnull);
+            getDelegateIL.Emit(OpCodes.Ldftn, factoryDelegateMethod);
+            getDelegateIL.Emit(OpCodes.Newobj, factoryDelegateConstructorInfo);
+            getDelegateIL.Emit(OpCodes.Ret);
 
             factoryType.CreateType();
             
@@ -93,9 +99,9 @@ namespace DryIoc
             addRegistrationMethod.ThrowIfNull();
             var newFactoryExpression = Expression.New(factoryType);
             var registrationLine = Expression.Call(generatedContainerVariable, addRegistrationMethod,
-                newFactoryExpression, Expression.Constant(simpleFactory.Key.ServiceType),
+                newFactoryExpression, Expression.Constant(simpleFactory.Key.ServiceType, typeof(Type)),
                 Expression.Constant(simpleFactory.Key.ServiceKey),
-                Expression.Constant(default(IfAlreadyRegistered?)), Expression.Constant(false));
+                Expression.Constant(null, typeof(IfAlreadyRegistered?)), Expression.Constant(false));
             registrationLines.Add(registrationLine);
         }
 
@@ -145,46 +151,6 @@ namespace DryIoc
 
             internal override bool ValidateAndNormalizeRegistration(Type serviceType, object serviceKey,
                 bool isStaticallyChecked, Rules rules) => true;
-
-            /// <summary>
-            /// 
-            /// </summary>
-            public static readonly Expression<Func<FactoryDelegate>> GetFactoryDelegateTemplateExpression =
-                () => FactoryDelegateTemplate;
-            internal static object FactoryDelegateTemplate(IResolverContext _) => throw new NotImplementedException();
-
-            private static FactoryDelegate CreateFactoryDelegateForTemplate() => FactoryDelegateTemplate;
-
-            /// <summary>
-            /// 
-            /// </summary>
-            /// <param name="request"></param>
-            /// <returns></returns>
-            public override FactoryDelegate GetDelegateOrDefault(Request request) => CreateFactoryDelegateForTemplate();
-
-            /// <summary>
-            /// 
-            /// </summary>
-            /// <param name="factoryMethod"></param>
-            /// <returns></returns>
-            public static Expression<Func<FactoryDelegate>> GetFactoryDelegateExpression(MethodInfo factoryMethod)
-            {
-                var visitor = new FactoryDelegateExpressionBuilder(factoryMethod.ThrowIfNull());
-                return (Expression<Func<FactoryDelegate>>) visitor.Visit(GetFactoryDelegateTemplateExpression);
-            }
-
-            private class FactoryDelegateExpressionBuilder : ExpressionVisitor
-            {
-                private readonly MethodInfo _factoryMethod;
-
-                public FactoryDelegateExpressionBuilder(MethodInfo factoryMethod)
-                {
-                    _factoryMethod = factoryMethod;
-                }
-
-                protected override Expression VisitConstant(ConstantExpression node) =>
-                    node.Type == typeof(MethodInfo) ? Expression.Constant(_factoryMethod) : node;
-            }
         }
 
         /// <summary>
