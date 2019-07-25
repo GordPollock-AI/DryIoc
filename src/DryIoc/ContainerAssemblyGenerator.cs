@@ -74,7 +74,7 @@ namespace DryIoc
             ModuleBuilder module, ParameterExpression generatedContainerVariable, List<Expression> registrationLines)
         {
             var typeName = GetTypeName(simpleFactory.Key, module);
-            var factoryType = module.DefineType(typeName, TypeAttributes.Public, typeof(GeneratedFactoryBase));
+            var factoryType = module.DefineType(typeName, TypeAttributes.Public, typeof(GeneratedFactory));
 
             var factoryDelegateMethodInfo = typeof(FactoryDelegate).GetMethod(nameof(FactoryDelegate.Invoke));
             var factoryDelegateMethod = factoryType.DefineMethod(nameof(FactoryDelegate), MethodAttributes.Static,
@@ -85,7 +85,7 @@ namespace DryIoc
             var factoryDelegateConstructorInfo =
                 typeof(FactoryDelegate).GetConstructor(new[] {typeof(object), typeof(IntPtr)});
             factoryDelegateConstructorInfo.ThrowIfNull();
-            var getDelegate = factoryType.DefineMethod(nameof(GeneratedFactoryBase.GetDelegateOrDefault), MethodAttributes.Public | MethodAttributes.Virtual,
+            var getDelegate = factoryType.DefineMethod(nameof(GeneratedFactory.GetDelegateOrDefault), MethodAttributes.Public | MethodAttributes.Virtual,
                 CallingConventions.Standard, typeof(FactoryDelegate), new[] {typeof(Request)});
             var getDelegateIL = getDelegate.GetILGenerator();
             getDelegateIL.Emit(OpCodes.Ldnull);
@@ -107,12 +107,12 @@ namespace DryIoc
 
         private static string GetTypeName(ServiceInfo serviceInfo, ModuleBuilder module)
         {
-            var serviceTypeName = serviceInfo.ServiceType.FullName.Replace('.', '_');
-            var keyValue = serviceInfo.ServiceKey?.ToString();
-            var baseName = keyValue == null ? serviceTypeName : serviceTypeName + '_' + keyValue;
+            var serviceTypeName = serviceInfo.ServiceType.FullName.Replace(".", "");
+            var keyValue = serviceInfo.ServiceKey?.ToString() ?? string.Empty;
+            var baseName = serviceTypeName + keyValue + "Factory";
             for (var i = 0; ; i++)
             {
-                var typeName = i == 0 ? baseName : baseName + '_' + i;
+                var typeName = i == 0 ? baseName : baseName + i;
                 if (!module.GetTypes().Any(t => t.Name.Equals(typeName, StringComparison.InvariantCultureIgnoreCase)))
                     return typeName;
             }
@@ -132,7 +132,7 @@ namespace DryIoc
         /// <summary>
         /// 
         /// </summary>
-        public abstract class GeneratedFactoryBase : Factory
+        public abstract class GeneratedFactory : Factory
         {
             /// <summary>
             /// 
@@ -151,12 +151,19 @@ namespace DryIoc
 
             internal override bool ValidateAndNormalizeRegistration(Type serviceType, object serviceKey,
                 bool isStaticallyChecked, Rules rules) => true;
+
+            /// <summary>
+            /// 
+            /// </summary>
+            /// <param name="request"></param>
+            /// <returns></returns>
+            public abstract override FactoryDelegate GetDelegateOrDefault(Request request);
         }
 
         /// <summary>
         /// 
         /// </summary>
-        public abstract class GeneratedFactory : GeneratedFactoryBase
+        public abstract class GeneratedDependencyFactory : GeneratedFactory
         {
             /// <summary>
             /// 
