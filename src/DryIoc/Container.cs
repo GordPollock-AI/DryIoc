@@ -242,8 +242,11 @@ namespace DryIoc
                 if (_registryReplaced)
                     return;
 
-                //var containerWithNewRegistry = new Container();
-                //_registry.Swap(_ => containerWithNewRegistry._registry.Value);
+                
+                /*var generatedAssembly = this.GenerateContainerAssembly();
+                var newContainer = generatedAssembly.ContainerFactory();
+                _registry.Swap(_ => newContainer._registry.Value);
+                */
                 _registryReplaced = true;
             }
         }
