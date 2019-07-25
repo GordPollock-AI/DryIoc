@@ -34,8 +34,9 @@ namespace DryIoc
             var simpleFactories = rootsByType.Where(g => !dependenciesByType.Contains(g.Key));
 
             var aName = new AssemblyName(nameof(ContainerAssembly));
+            var fileName = aName + ".dll";
             var assembly = AppDomain.CurrentDomain.DefineDynamicAssembly(aName, AssemblyBuilderAccess.RunAndSave);
-            var module = assembly.DefineDynamicModule(aName.Name);
+            var module = assembly.DefineDynamicModule(aName.Name, fileName);
 
             var generatedContainerVariable = Expression.Variable(typeof(Container));
             
@@ -53,11 +54,18 @@ namespace DryIoc
 
             var block = Expression.Block(typeof(Container), new[] {generatedContainerVariable},
                 new[] {newContainerExpr}.Concat(registrationLines).Concat(new[] {generatedContainerVariable}));
-            var methodBody = Expression.Lambda<Container>(block);
+            var methodBody = Expression.Lambda<Func<Container>>(block);
 
             methodBody.CompileToMethod(generatorMethod);
 
-            var callGenerator = generatorMethod.CreateDelegate(typeof(Func<Container>)) as Func<Container>;
+            var concreteGeneratorType = generatorType.CreateType();
+            
+            assembly.Save(fileName);
+
+            var concreteGeneratorMethod =
+                concreteGeneratorType.GetMethod(generatorMethod.Name, BindingFlags.Public | BindingFlags.Static);
+            concreteGeneratorMethod.ThrowIfNull();
+            var callGenerator = concreteGeneratorMethod.CreateDelegate(typeof(Func<Container>)) as Func<Container>;
             
             return new ContainerAssembly(assembly, callGenerator);
         }
@@ -70,7 +78,7 @@ namespace DryIoc
 
             var factoryDelegateMethodInfo = typeof(FactoryDelegate).GetMethod(nameof(FactoryDelegate.Invoke));
             var factoryDelegateMethod = factoryType.DefineMethod(nameof(FactoryDelegate), MethodAttributes.Static,
-                factoryDelegateMethodInfo.CallingConvention, factoryDelegateMethodInfo.ReturnType,
+                CallingConventions.Standard, factoryDelegateMethodInfo.ReturnType,
                 factoryDelegateMethodInfo.GetParameters().Select(p => p.ParameterType).ToArray());
             simpleFactory.Value.CompileToMethod(factoryDelegateMethod);
             
@@ -79,6 +87,8 @@ namespace DryIoc
             var getDelegateExpression = GeneratedFactoryBase.GetFactoryDelegateExpression(factoryDelegateMethod);
             getDelegateExpression.CompileToMethod(getDelegate);
 
+            factoryType.CreateType();
+            
             var addRegistrationMethod = typeof(IRegistrator).GetMethod(nameof(IRegistrator.Register));
             addRegistrationMethod.ThrowIfNull();
             var newFactoryExpression = Expression.New(factoryType);
@@ -111,7 +121,7 @@ namespace DryIoc
                         .Concat(resolutionRoots.EmptyIfNull()));
 
         private static ContainerTools.GeneratedExpressions GetAllRegistrationsAsResolutionRoots(Container container) =>
-            GetGeneratedExpressions(container, reg => reg.AsResolutionRoot ? reg.ToServiceInfo().One() : null, null);
+            GetGeneratedExpressions(container, reg => reg.ToServiceInfo().One(), null);
 
         /// <summary>
         /// 
@@ -142,6 +152,15 @@ namespace DryIoc
             public static readonly Expression<Func<FactoryDelegate>> GetFactoryDelegateTemplateExpression =
                 () => FactoryDelegateTemplate;
             internal static object FactoryDelegateTemplate(IResolverContext _) => throw new NotImplementedException();
+
+            private static FactoryDelegate CreateFactoryDelegateForTemplate() => FactoryDelegateTemplate;
+
+            /// <summary>
+            /// 
+            /// </summary>
+            /// <param name="request"></param>
+            /// <returns></returns>
+            public override FactoryDelegate GetDelegateOrDefault(Request request) => CreateFactoryDelegateForTemplate();
 
             /// <summary>
             /// 
