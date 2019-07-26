@@ -41,16 +41,20 @@ namespace DryIoc
             var assembly = AppDomain.CurrentDomain.DefineDynamicAssembly(aName, AssemblyBuilderAccess.RunAndSave);
             var module = assembly.DefineDynamicModule(aName.Name, fileName);
 
+            var generatorType = module.DefineType(nameof(ContainerGenerator), TypeAttributes.Public);
+            var generatorMethod = generatorType.DefineMethod(nameof(ContainerGenerator.GetContainer),
+                MethodAttributes.Public | MethodAttributes.Static, typeof(Container), new Type[0]);
+
             var generatedContainerVariable = Expression.Variable(typeof(Container));
             
             var registrationLines = new List<Expression>();
             foreach (var key in allKeys)
             {
-                var rootRegistration = rootsByType[key].SingleOrDefault();
+                //var rootRegistration = .SingleOrDefault();
                 var dependencyRegistrations = dependenciesByType[key].ToList();
 
-                var factoryType = CreateFactoryType(module, key);
-
+                var rootFactoryDelegate = CreateRootFunctionAndFactoryDelegate(rootsByType[key], generatorType);
+                
                 if (rootRegistration.Key != null)
                 {
                     AddRootFactoryDelegate(rootRegistration, factoryType);
@@ -67,9 +71,6 @@ namespace DryIoc
                 registrationLines.Add(registrationLine);
             }
 
-            var generatorType = module.DefineType(nameof(ContainerGenerator), TypeAttributes.Public);
-            var generatorMethod = generatorType.DefineMethod(nameof(ContainerGenerator.GetContainer),
-                MethodAttributes.Public | MethodAttributes.Static, typeof(Container), new Type[0]);
 
             var newContainerExpr = Expression.Assign(generatedContainerVariable, Expression.New(typeof(Container)));
 
@@ -89,6 +90,15 @@ namespace DryIoc
             var callGenerator = concreteGeneratorMethod.CreateDelegate(typeof(Func<Container>)) as Func<Container>;
             
             return new ContainerAssembly(assembly, callGenerator);
+        }
+
+        private static Expression CreateRootFunctionAndFactoryDelegate(IEnumerable<KeyValuePair<ServiceInfo,Expression<FactoryDelegate>>> rootRegistrations, TypeBuilder generatorType)
+        {
+            var rootRegistration = rootRegistrations.SingleOrDefault();
+            if (rootRegistration.Key == null)
+                return Expression.Constant(null, typeof(FactoryDelegate));
+            
+            
         }
 
         private static void AddRootFactoryDelegate(KeyValuePair<ServiceInfo, Expression<FactoryDelegate>> rootFactory, TypeBuilder factoryType)
