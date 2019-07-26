@@ -204,6 +204,65 @@ namespace DryIoc
 
                 return selectedDependencyFactory?.Item3 ?? _rootFactoryDelegate;
             }
+
+            /// <summary>
+            /// 
+            /// </summary>
+            public static readonly Expression<Func<FactoryDelegate>> GetFactoryDelegateTemplateExpression =
+                () => FactoryDelegateTemplate;
+            internal static object FactoryDelegateTemplate(IResolverContext _) => throw new NotImplementedException();
+
+            private static FactoryDelegate CreateFactoryDelegateForTemplate() => FactoryDelegateTemplate;
+
+            /// <summary>
+            /// 
+            /// </summary>
+            /// <param name="request"></param>
+            /// <returns></returns>
+            public override FactoryDelegate GetDelegateOrDefault(Request request) => CreateFactoryDelegateForTemplate();
+
+            /// <summary>
+            /// 
+            /// </summary>
+            /// <param name="factoryMethod"></param>
+            /// <returns></returns>
+            public static Expression<Func<FactoryDelegate>> GetFactoryDelegateExpression(MethodInfo factoryMethod)
+            {
+                var visitor = new FactoryDelegateExpressionBuilder(factoryMethod.ThrowIfNull());
+                return (Expression<Func<FactoryDelegate>>) visitor.Visit(GetFactoryDelegateTemplateExpression);
+            }
+
+            private class FactoryDelegateExpressionBuilder : ExpressionVisitor
+            {
+                private readonly MethodInfo _factoryMethod;
+
+                public FactoryDelegateExpressionBuilder(MethodInfo factoryMethod)
+                {
+                    _factoryMethod = factoryMethod;
+                }
+
+                protected override Expression VisitConstant(ConstantExpression node) =>
+                    node.Type == typeof(MethodInfo) ? Expression.Constant(_factoryMethod) : node;
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public abstract class GeneratedFactory : GeneratedFactoryBase
+        {
+            /// <summary>
+            /// 
+            /// </summary>
+            /// <param name="request"></param>
+            /// <returns></returns>
+            public override FactoryDelegate GetDelegateOrDefault(Request request) => FactoryDelegates
+                .FirstOrDefault(t => request.RequiredServiceType == t.Item1 && request.Parent.Equals(t.Item2))?.Item3;
+
+            /// <summary>
+            /// 
+            /// </summary>
+            protected IEnumerable<Tuple<Type, Request, FactoryDelegate>> FactoryDelegates { get; }
         }
     }
 
