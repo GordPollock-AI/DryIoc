@@ -157,8 +157,23 @@ namespace DryIoc
         /// <summary>
         /// 
         /// </summary>
-        public abstract class GeneratedFactory : Factory
+        public class GeneratedFactory : Factory
         {
+            private readonly FactoryDelegate _rootFactoryDelegate;
+            private readonly Tuple<Type, Request, FactoryDelegate>[] _dependencyFactoryDelegates;
+
+            /// <summary>
+            /// 
+            /// </summary>
+            /// <param name="rootFactoryDelegate"></param>
+            /// <param name="dependencyFactoryDelegates"></param>
+            public GeneratedFactory(FactoryDelegate rootFactoryDelegate,
+                params Tuple<Type, Request, FactoryDelegate>[] dependencyFactoryDelegates)
+            {
+                _rootFactoryDelegate = rootFactoryDelegate;
+                _dependencyFactoryDelegates = dependencyFactoryDelegates;
+            }
+
             /// <summary>
             /// 
             /// </summary>
@@ -184,24 +199,11 @@ namespace DryIoc
             /// <returns></returns>
             public override FactoryDelegate GetDelegateOrDefault(Request request)
             {
-                var factoryDelegates = GetDependencyFactoryDelegates();
-                var selectedDependencyFactory = factoryDelegates.FirstOrDefault(t =>
+                var selectedDependencyFactory = _dependencyFactoryDelegates.FirstOrDefault(t =>
                     request.RequiredServiceType == t.Item1 && request.Parent.Equals(t.Item2));
 
-                return selectedDependencyFactory?.Item3 ?? GetRootFactoryDelegate();
+                return selectedDependencyFactory?.Item3 ?? _rootFactoryDelegate;
             }
-
-            /// <summary>
-            /// 
-            /// </summary>
-            /// <returns></returns>
-            protected virtual FactoryDelegate GetRootFactoryDelegate() => null;
-
-            /// <summary>
-            /// 
-            /// </summary>
-            protected virtual IEnumerable<Tuple<Type, Request, FactoryDelegate>> GetDependencyFactoryDelegates() =>
-                new Tuple<Type, Request, FactoryDelegate>[0];
         }
     }
 
