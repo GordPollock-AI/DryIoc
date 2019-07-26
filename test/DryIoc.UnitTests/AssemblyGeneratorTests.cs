@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using DryIoc.UnitTests.CUT;
@@ -20,18 +19,14 @@ namespace DryIoc.UnitTests
         {
             var testFactoryMethod = typeof(TestFactory).GetMethod(nameof(FactoryDelegate), BindingFlags.Static | BindingFlags.Public);
 
-            Console.WriteLine(ContainerAssemblyGenerator.GeneratedFactoryBase.GetFactoryDelegateTemplateExpression);
-            Expression<Func<FactoryDelegate>> expected = () => TestFactory.FactoryDelegate;
-            Console.WriteLine(expected);
-            
             var factoryDelegateExpression =
-                ContainerAssemblyGenerator.GeneratedFactoryBase.GetFactoryDelegateExpression(testFactoryMethod);
+                ContainerAssemblyGenerator.GeneratedFactory.GetFactoryDelegateExpression(testFactoryMethod);
 
-            Console.WriteLine(factoryDelegateExpression);
-            
+            Expression<Func<FactoryDelegate>> expectedDelegateDelegate = () => TestFactory.FactoryDelegate;
+            var expected = expectedDelegateDelegate.Body;
             Assert.That(factoryDelegateExpression.ToString(), Is.EqualTo(expected.ToString()));
         }
-        
+
         [Test]
         public void Resolving_service_should_return_registered_implementation()
         {
