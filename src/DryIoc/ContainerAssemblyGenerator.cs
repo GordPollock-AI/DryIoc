@@ -14,8 +14,8 @@ namespace DryIoc
     public static class ContainerAssemblyGenerator
     {
         private static readonly MethodInfo _addRegistrationMethod = typeof(IRegistrator).GetMethod(nameof(IRegistrator.Register));
-        private static readonly MethodInfo _factoryDelegateMethodInfo = typeof(FactoryDelegate).GetMethod(nameof(FactoryDelegate.Invoke));
-        private static readonly ConstructorInfo _factoryDelegateConstructorInfo = typeof(FactoryDelegate).GetConstructor(new[] {typeof(object), typeof(IntPtr)});
+        private static readonly ConstructorInfo _generatedFactoryConstructor = typeof(GeneratedFactory).GetConstructors().Single();
+        private static readonly ConstructorInfo _dependencyFactorySelectorConstructor = typeof(Tuple<Type, Request, FactoryDelegate>).GetConstructors().Single();
 
         /// <summary>
         /// 
@@ -30,9 +30,9 @@ namespace DryIoc
         {
             var generatedExpressions = GetGeneratedExpressions(container, selectResolutionRoots, resolutionRoots);
 
-            var rootsByType = generatedExpressions.Roots.ToLookup(r => KV.Of(r.Key.ServiceType, r.Key.ServiceKey));
+            var rootsByType = generatedExpressions.Roots.ToLookup(r => ToServiceTypeKeyPair(r.Key));
             var dependenciesByType = generatedExpressions.ResolveDependencies
-                .ToLookup(r => KV.Of(r.Key.ServiceType, r.Key.ServiceKey));
+                .ToLookup(r => ToServiceTypeKeyPair(r.Key));
 
             var allKeys = rootsByType.Select(g => g.Key).Union(dependenciesByType.Select(g => g.Key));
 
@@ -44,30 +44,23 @@ namespace DryIoc
             var generatorType = module.DefineType(nameof(ContainerGenerator), TypeAttributes.Public);
             var generatorMethod = generatorType.DefineMethod(nameof(ContainerGenerator.GetContainer),
                 MethodAttributes.Public | MethodAttributes.Static, typeof(Container), new Type[0]);
+            var generatorTypeMethodNames = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase)
+                {nameof(ContainerGenerator.GetContainer)};
 
             var generatedContainerVariable = Expression.Variable(typeof(Container));
             
             var registrationLines = new List<Expression>();
             foreach (var key in allKeys)
             {
-                //var rootRegistration = .SingleOrDefault();
-                var dependencyRegistrations = dependenciesByType[key].ToList();
+                var rootFactoryDelegate = CreateRootFactoryDelegateExpression(rootsByType[key], generatorType, generatorTypeMethodNames);
 
-                var rootFactoryDelegate = CreateRootFunctionAndFactoryDelegate(rootsByType[key], generatorType);
-                
-                if (rootRegistration.Key != null)
-                {
-                    AddRootFactoryDelegate(rootRegistration, factoryType);
-                }
+                var dependencyFactoryDelegates = dependenciesByType[key].Select(d =>
+                    CreateDependencyFactoryDelegateExpression(d, container, generatorType, generatorTypeMethodNames));
 
-                if (dependencyRegistrations.Any())
-                {
-                    AddDependencyFactoryDelegates(dependencyRegistrations, factoryType);
-                }
+                var delegateArguments = new[] {rootFactoryDelegate}.Concat(dependencyFactoryDelegates);
 
-                factoryType.CreateType();
-
-                var registrationLine = GenerateAddRegistrationLine(key, generatedContainerVariable, factoryType);
+                var registrationLine =
+                    GenerateAddRegistrationLine(key, generatedContainerVariable, delegateArguments);
                 registrationLines.Add(registrationLine);
             }
 
@@ -92,65 +85,92 @@ namespace DryIoc
             return new ContainerAssembly(assembly, callGenerator);
         }
 
-        private static Expression CreateRootFunctionAndFactoryDelegate(IEnumerable<KeyValuePair<ServiceInfo,Expression<FactoryDelegate>>> rootRegistrations, TypeBuilder generatorType)
+        private static KV<Type, object> ToServiceTypeKeyPair(ServiceInfo serviceInfo) =>
+            KV.Of(serviceInfo.ServiceType, serviceInfo.ServiceKey);
+
+        private static KV<Type, object> ToServiceTypeKeyPair(Request request) =>
+            KV.Of(request.ServiceType, request.ServiceKey);
+
+        private static Expression CreateRootFactoryDelegateExpression(
+            IEnumerable<KeyValuePair<ServiceInfo, Expression<FactoryDelegate>>> rootRegistrations,
+            TypeBuilder generatorType, ISet<string> generatorTypeMethodNames)
         {
             var rootRegistration = rootRegistrations.SingleOrDefault();
             if (rootRegistration.Key == null)
                 return Expression.Constant(null, typeof(FactoryDelegate));
-            
-            
+
+            var methodName = GetMethodName(ToServiceTypeKeyPair(rootRegistration.Key), generatorTypeMethodNames);
+            var method = CreateFactoryMethod(generatorType, methodName, rootRegistration.Value);
+            return GeneratedFactory.GetFactoryDelegateExpression(method);
         }
 
-        private static void AddRootFactoryDelegate(KeyValuePair<ServiceInfo, Expression<FactoryDelegate>> rootFactory, TypeBuilder factoryType)
+        private static string GetMethodName(KV<Type, object> serviceTypeKey, ISet<string> methodNames)
         {
-            var factoryDelegateMethod = factoryType.DefineMethod("Root" + nameof(FactoryDelegate), MethodAttributes.Static,
-                CallingConventions.Standard, _factoryDelegateMethodInfo.ReturnType,
-                _factoryDelegateMethodInfo.GetParameters().Select(p => p.ParameterType).ToArray());
-            rootFactory.Value.CompileToMethod(factoryDelegateMethod);
-
-            var getDelegate = factoryType.DefineMethod(nameof(GeneratedFactory.GetDelegateOrDefault),
-                MethodAttributes.Public | MethodAttributes.Virtual,
-                CallingConventions.Standard, typeof(FactoryDelegate), new[] {typeof(Request)});
-            var getDelegateIL = getDelegate.GetILGenerator();
-            getDelegateIL.Emit(OpCodes.Ldnull);
-            getDelegateIL.Emit(OpCodes.Ldftn, factoryDelegateMethod);
-            getDelegateIL.Emit(OpCodes.Newobj, _factoryDelegateConstructorInfo);
-            getDelegateIL.Emit(OpCodes.Ret);
+            var serviceTypeName = serviceTypeKey.Key.FullName.Replace(".", "");
+            var keyValue = serviceTypeKey.Value?.ToString() ?? string.Empty;
+            var baseName = "Construct" + serviceTypeName + keyValue;
+            for (var i = 0; ; i++)
+            {
+                var methodName = i == 0 ? baseName : baseName + i;
+                if (methodNames.Add(methodName))
+                {
+                    return methodName;
+                }
+            }
         }
 
-        private static void AddDependencyFactoryDelegates(List<KeyValuePair<Request,Expression>> dependencyRegistrations, TypeBuilder factoryType)
+        private static MethodInfo CreateFactoryMethod(TypeBuilder generatorType, string methodName, Expression<FactoryDelegate> factoryExpression)
         {
-            throw new NotImplementedException();
+            var method = generatorType.DefineMethod(methodName, MethodAttributes.Private | MethodAttributes.Static);
+            factoryExpression.CompileToMethod(method);
+            return method;
+        }
+
+        private static Expression CreateDependencyFactoryDelegateExpression(
+            KeyValuePair<Request, Expression> dependencyInfo,
+            Container container,
+            TypeBuilder generatorType,
+            HashSet<string> generatorTypeMethodNames)
+        {
+            var typeExpression = Expression.Constant(dependencyInfo.Key.RequiredServiceType, typeof(Type));
+
+            var requestExpression = container.GetRequestExpression(dependencyInfo.Key).ToExpression();
+
+            var methodName = GetMethodName(ToServiceTypeKeyPair(dependencyInfo.Key), generatorTypeMethodNames);
+            var method = CreateFactoryMethod(generatorType, methodName, dependencyInfo.Value.WrapInFactoryExpression());
+            var factoryDelegateExpression = GeneratedFactory.GetFactoryDelegateExpression(method);
+            
+            return Expression.New(_dependencyFactorySelectorConstructor, typeExpression, requestExpression, factoryDelegateExpression);
+        }
+
+        /// <summary>Wraps service creation expression (body) into <see cref="FactoryDelegate"/> and returns result lambda expression.</summary>
+        private static Expression<FactoryDelegate> WrapInFactoryExpression(this Expression expression) =>
+            Expression.Lambda<FactoryDelegate>(expression.NormalizeExpression(),
+                FactoryDelegateCompiler.ResolverContextParamExpr.ToParameterExpression());
+        
+        /// Strips the unnecessary or adds the necessary cast to expression return result
+        private static Expression NormalizeExpression(this Expression expr)
+        {
+            if (expr.NodeType == ExpressionType.Convert)
+            {
+                var operandExpr = ((UnaryExpression)expr).Operand;
+                if (operandExpr.Type.IsAssignableTo(expr.Type))
+                    return operandExpr;
+            }
+
+            return expr.Type != typeof(void) && expr.Type.IsValueType() ? Expression.Convert(expr, typeof(object)) : expr;
         }
 
         private static MethodCallExpression GenerateAddRegistrationLine(KV<Type, object> simpleFactory,
-            ParameterExpression generatedContainerVariable, TypeBuilder factoryType)
+            ParameterExpression generatedContainerVariable,
+            IEnumerable<Expression> delegateArguments)
         {
-            var newFactoryExpression = Expression.New(factoryType);
-            var registrationLine = Expression.Call(generatedContainerVariable, _addRegistrationMethod,
-                newFactoryExpression, Expression.Constant(simpleFactory.Key, typeof(Type)),
+            return Expression.Call(generatedContainerVariable, _addRegistrationMethod,
+                Expression.New(_generatedFactoryConstructor, delegateArguments),
+                Expression.Constant(simpleFactory.Key, typeof(Type)),
                 Expression.Constant(simpleFactory.Value, typeof(object)),
-                Expression.Constant(null, typeof(IfAlreadyRegistered?)), Expression.Constant(false));
-            return registrationLine;
-        }
-
-        private static TypeBuilder CreateFactoryType(ModuleBuilder module, KV<Type, object> serviceInfo)
-        {
-            var typeName = GetTypeName(serviceInfo, module);
-            return module.DefineType(typeName, TypeAttributes.Public, typeof(GeneratedFactory));
-        }
-
-        private static string GetTypeName(KV<Type, object> serviceInfo, ModuleBuilder module)
-        {
-            var serviceTypeName = serviceInfo.Key.FullName.Replace(".", "");
-            var keyValue = serviceInfo.Value?.ToString() ?? string.Empty;
-            var baseName = serviceTypeName + keyValue + "Factory";
-            for (var i = 0; ; i++)
-            {
-                var typeName = i == 0 ? baseName : baseName + i;
-                if (!module.GetTypes().Any(t => t.Name.Equals(typeName, StringComparison.InvariantCultureIgnoreCase)))
-                    return typeName;
-            }
+                Expression.Constant(null, typeof(IfAlreadyRegistered?)),
+                Expression.Constant(false));
         }
 
         private static ContainerTools.GeneratedExpressions GetGeneratedExpressions(Container container,
