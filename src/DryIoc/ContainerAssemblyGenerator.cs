@@ -266,7 +266,7 @@ namespace DryIoc
                 }
 
                 protected override Expression VisitConstant(ConstantExpression node) =>
-                    node.Type == typeof(MethodInfo) ? Expression.Constant(_factoryMethod) : node;
+                    node.Type == typeof(MethodInfo) ? Expression.Constant(_factoryMethod, typeof(MethodInfo)) : node;
             }
         }
     }
