@@ -226,29 +226,10 @@ namespace DryIoc
 
         object IResolver.Resolve(Type serviceType, IfUnresolved ifUnresolved)
         {
-            ReplaceRegistry();
             var cachedItem = _registry.Value.DefaultFactoryCache.Value.GetValueOrDefault(serviceType);
             return cachedItem != null 
                 ? (cachedItem as FactoryDelegate ?? CompileAndCacheFactoryDelegate(serviceType, cachedItem)).Invoke(this)
                 : ResolveAndCacheFactoryDelegate(serviceType, ifUnresolved);
-        }
-
-        private void ReplaceRegistry()
-        {
-            if (_registryReplaced)
-                return;
-            lock (_registry)
-            {
-                if (_registryReplaced)
-                    return;
-
-                
-                /*var generatedAssembly = this.GenerateContainerAssembly();
-                var newContainer = generatedAssembly.ContainerFactory();
-                _registry.Swap(_ => newContainer._registry.Value);
-                */
-                _registryReplaced = true;
-            }
         }
 
         private FactoryDelegate CompileAndCacheFactoryDelegate(Type serviceType, object expr)
@@ -1643,8 +1624,6 @@ namespace DryIoc
         private readonly IScope _ownCurrentScope;
         private readonly IScopeContext _scopeContext;
         private readonly IResolverContext _parent;
-
-        private bool _registryReplaced = false;
 
         internal sealed class InstanceFactory : Factory
         {
