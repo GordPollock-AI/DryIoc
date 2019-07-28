@@ -20,7 +20,7 @@ namespace DryIoc.UnitTests
             var testFactoryMethod = typeof(TestFactory).GetMethod(nameof(FactoryDelegate), BindingFlags.Static | BindingFlags.Public);
 
             var factoryDelegateExpression =
-                ContainerAssemblyGenerator.GeneratedFactory.GetFactoryDelegateExpression(testFactoryMethod);
+                ContainerAssemblyGenerator.GetFactoryDelegateExpression(testFactoryMethod);
 
             Expression<Func<FactoryDelegate>> expectedDelegateDelegate = () => TestFactory.FactoryDelegate;
             var expected = expectedDelegateDelegate.Body;

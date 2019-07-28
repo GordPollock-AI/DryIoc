@@ -102,7 +102,7 @@ namespace DryIoc
 
             var methodName = GetMethodName(ToServiceTypeKeyPair(rootRegistration.Key), generatorTypeMethodNames);
             var method = CreateFactoryMethod(generatorType, methodName, rootRegistration.Value);
-            return GeneratedFactory.GetFactoryDelegateExpression(method);
+            return GetFactoryDelegateExpression(method);
         }
 
         private static string GetMethodName(KV<Type, object> serviceTypeKey, ISet<string> methodNames)
@@ -139,7 +139,7 @@ namespace DryIoc
 
             var methodName = GetMethodName(ToServiceTypeKeyPair(dependencyInfo.Key), generatorTypeMethodNames);
             var method = CreateFactoryMethod(generatorType, methodName, dependencyInfo.Value.WrapInFactoryExpression());
-            var factoryDelegateExpression = GeneratedFactory.GetFactoryDelegateExpression(method);
+            var factoryDelegateExpression = GetFactoryDelegateExpression(method);
             
             return Expression.New(_dependencyFactorySelectorConstructor, typeExpression, requestExpression, factoryDelegateExpression);
         }
@@ -184,6 +184,40 @@ namespace DryIoc
 
         private static ContainerTools.GeneratedExpressions GetAllRegistrationsAsResolutionRoots(Container container) =>
             GetGeneratedExpressions(container, reg => reg.ToServiceInfo().One(), null);
+
+
+        /// <summary>
+        /// 
+        /// </summary>
+        private static readonly Expression<Func<FactoryDelegate>> _getFactoryDelegateTemplateExpression =
+            () => FactoryDelegateTemplate;
+
+        private static object FactoryDelegateTemplate(IResolverContext _) => throw new NotImplementedException();
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="factoryMethod"></param>
+        /// <returns></returns>
+        public static Expression GetFactoryDelegateExpression(MethodInfo factoryMethod)
+        {
+            var visitor = new FactoryDelegateExpressionBuilder(factoryMethod.ThrowIfNull());
+            var factoryDelegateDelegate = (Expression<Func<FactoryDelegate>>) visitor.Visit(_getFactoryDelegateTemplateExpression);
+            return factoryDelegateDelegate.Body;
+        }
+
+        private class FactoryDelegateExpressionBuilder : ExpressionVisitor
+        {
+            private readonly MethodInfo _factoryMethod;
+
+            public FactoryDelegateExpressionBuilder(MethodInfo factoryMethod)
+            {
+                _factoryMethod = factoryMethod;
+            }
+
+            protected override Expression VisitConstant(ConstantExpression node) =>
+                node.Type == typeof(MethodInfo) ? Expression.Constant(_factoryMethod, typeof(MethodInfo)) : node;
+        }
 
         /// <summary>
         /// 
@@ -234,39 +268,6 @@ namespace DryIoc
                     request.RequiredServiceType == t.Item1 && request.Parent.Equals(t.Item2));
 
                 return selectedDependencyFactory?.Item3 ?? _rootFactoryDelegate;
-            }
-
-            /// <summary>
-            /// 
-            /// </summary>
-            private static readonly Expression<Func<FactoryDelegate>> _getFactoryDelegateTemplateExpression =
-                () => FactoryDelegateTemplate;
-
-            private static object FactoryDelegateTemplate(IResolverContext _) => throw new NotImplementedException();
-
-            /// <summary>
-            /// 
-            /// </summary>
-            /// <param name="factoryMethod"></param>
-            /// <returns></returns>
-            public static Expression GetFactoryDelegateExpression(MethodInfo factoryMethod)
-            {
-                var visitor = new FactoryDelegateExpressionBuilder(factoryMethod.ThrowIfNull());
-                var factoryDelegateDelegate = (Expression<Func<FactoryDelegate>>) visitor.Visit(_getFactoryDelegateTemplateExpression);
-                return factoryDelegateDelegate.Body;
-            }
-
-            private class FactoryDelegateExpressionBuilder : ExpressionVisitor
-            {
-                private readonly MethodInfo _factoryMethod;
-
-                public FactoryDelegateExpressionBuilder(MethodInfo factoryMethod)
-                {
-                    _factoryMethod = factoryMethod;
-                }
-
-                protected override Expression VisitConstant(ConstantExpression node) =>
-                    node.Type == typeof(MethodInfo) ? Expression.Constant(_factoryMethod, typeof(MethodInfo)) : node;
             }
         }
     }
