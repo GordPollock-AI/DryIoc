@@ -56,8 +56,9 @@ namespace DryIoc
 
                 var dependencyFactoryDelegates = dependenciesByType[key].Select(d =>
                     CreateDependencyFactoryDelegateExpression(d, container, generatorType, generatorTypeMethodNames));
+                var dependencyDelegatesArray = Expression.NewArrayInit(typeof(Tuple<Type, Request, FactoryDelegate>), dependencyFactoryDelegates);
 
-                var delegateArguments = new[] {rootFactoryDelegate}.Concat(dependencyFactoryDelegates);
+                var delegateArguments = new[] {rootFactoryDelegate, dependencyDelegatesArray};
 
                 var registrationLine =
                     GenerateAddRegistrationLine(key, generatedContainerVariable, delegateArguments);
